@@ -5,7 +5,8 @@ const cheerio = require("cheerio");
 const BASE_URL = "https://xoilacxtr.tv";
 
 const manifest = {
-  id: "org.xoilac.livefootball",
+  id: "org.xoilac.livefootball.v2",
+
   version: "1.0.2",
   name: "Xoilac TV Live Sports",
   description: "Trực tiếp bóng đá Ngoại hạng Anh & các giải đấu từ Xoilac TV",
