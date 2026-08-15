@@ -6,7 +6,7 @@ const BASE_URL = "https://xoilacxtr.tv";
 
 const manifest = {
   id: "org.xoilac.livefootball",
-  version: "1.0.0",
+  version: "1.0.1",
   name: "Xoilac TV Live Sports",
   description: "Trực tiếp bóng đá Ngoại hạng Anh & các giải đấu từ Xoilac TV",
   resources: ["catalog", "stream"],
@@ -34,26 +34,51 @@ builder.defineCatalogHandler(async (args) => {
     const $ = cheerio.load(data);
     const metas = [];
 
-    $(".match-item, .item-match, div[class*='match']").each((index, element) => {
-      const matchName = $(element).find(".match-title, .team-name, .title").text().trim() || `Trận đấu ${index + 1}`;
-      const matchLink = $(element).find("a").attr("href");
-      const time = $(element).find(".time, .status").text().trim();
+    // Tìm tất cả các thẻ liên kết trận đấu
+    $("a").each((index, element) => {
+      const link = $(element).attr("href");
+      
+      // Lọc các đường dẫn vào trang trận đấu
+      if (link && (link.includes("/truc-tiep/") || link.includes("/match/"))) {
+        // Tìm ảnh thumbnail/poster
+        let img = $(element).find("img").attr("src") || 
+                  $(element).find("img").attr("data-src") || 
+                  $(element).parent().find("img").attr("src") ||
+                  $(element).parent().find("img").attr("data-src");
 
-      if (matchLink) {
-        const matchId = Buffer.from(matchLink).toString("base64");
-        metas.push({
-          id: `xoilac_${matchId}`,
-          type: "tv",
-          name: `${time ? "[" + time + "] " : ""}${matchName}`,
-          poster: "https://v3.strem.io/res/stremio.png",
-          description: `Xem trực tiếp ${matchName} trên Xoilac TV`
-        });
+        // Tìm tiêu đề trận đấu hoặc tên đội bóng
+        let title = $(element).attr("title") || 
+                    $(element).find(".title, .match-title, .name, .team-name").text().trim() ||
+                    $(element).text().trim();
+
+        // Xử lý tiêu đề không bị rác văn bản
+        title = title.replace(/\s+/g, " ").trim();
+
+        // Xử lý link ảnh chuẩn
+        if (img && !img.startsWith("http")) {
+          img = img.startsWith("//") ? `https:${img}` : `${BASE_URL}${img}`;
+        }
+
+        if (link && title.length > 3) {
+          const matchId = Buffer.from(link).toString("base64");
+          metas.push({
+            id: `xoilac_${matchId}`,
+            type: "tv",
+            name: title,
+            poster: img || "https://v3.strem.io/res/stremio.png",
+            description: `Xem trực tiếp ${title} trên Xoilac TV`
+          });
+        }
       }
     });
 
-    return { metas };
+    // Lọc bỏ các mục bị trùng lặp
+    const uniqueMetas = Array.from(new Set(metas.map(a => a.id)))
+      .map(id => metas.find(a => a.id === id));
+
+    return { metas: uniqueMetas };
   } catch (error) {
-    console.error("Lỗi khi cào danh sách Xoilac:", error.message);
+    console.error("Lỗi khi cào dữ liệu Xoilac:", error.message);
     return { metas: [] };
   }
 });
@@ -94,4 +119,4 @@ builder.defineStreamHandler(async (args) => {
 
 const PORT = process.env.PORT || 7000;
 serveHTTP(builder.getInterface(), { port: PORT });
-console.log(`Addon Xoilac đang chạy tại cổng ${PORT}`);
+
