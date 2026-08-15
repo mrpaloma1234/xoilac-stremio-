@@ -2,7 +2,7 @@ const { addonBuilder, serveHTTP } = require("stremio-addon-sdk");
 const axios = require("axios");
 const cheerio = require("cheerio");
 
-const BASE_URL = "https://xoilackvy.tv";
+const BASE_URL = "https://xoilacxtr.tv";
 
 const manifest = {
   id: "org.xoilac.livefootball",
