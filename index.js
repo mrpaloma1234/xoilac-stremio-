@@ -6,10 +6,10 @@ const BASE_URL = "https://xoilacxtr.tv";
 
 const manifest = {
   id: "org.xoilac.livefootball",
-  version: "1.0.1",
+  version: "1.0.2",
   name: "Xoilac TV Live Sports",
   description: "Trực tiếp bóng đá Ngoại hạng Anh & các giải đấu từ Xoilac TV",
-  resources: ["catalog", "stream"],
+  resources: ["catalog", "meta", "stream"],
   types: ["tv"],
   catalogs: [
     {
@@ -34,27 +34,21 @@ builder.defineCatalogHandler(async (args) => {
     const $ = cheerio.load(data);
     const metas = [];
 
-    // Tìm tất cả các thẻ liên kết trận đấu
     $("a").each((index, element) => {
       const link = $(element).attr("href");
       
-      // Lọc các đường dẫn vào trang trận đấu
       if (link && (link.includes("/truc-tiep/") || link.includes("/match/"))) {
-        // Tìm ảnh thumbnail/poster
         let img = $(element).find("img").attr("src") || 
                   $(element).find("img").attr("data-src") || 
                   $(element).parent().find("img").attr("src") ||
                   $(element).parent().find("img").attr("data-src");
 
-        // Tìm tiêu đề trận đấu hoặc tên đội bóng
         let title = $(element).attr("title") || 
                     $(element).find(".title, .match-title, .name, .team-name").text().trim() ||
                     $(element).text().trim();
 
-        // Xử lý tiêu đề không bị rác văn bản
         title = title.replace(/\s+/g, " ").trim();
 
-        // Xử lý link ảnh chuẩn
         if (img && !img.startsWith("http")) {
           img = img.startsWith("//") ? `https:${img}` : `${BASE_URL}${img}`;
         }
@@ -72,7 +66,6 @@ builder.defineCatalogHandler(async (args) => {
       }
     });
 
-    // Lọc bỏ các mục bị trùng lặp
     const uniqueMetas = Array.from(new Set(metas.map(a => a.id)))
       .map(id => metas.find(a => a.id === id));
 
@@ -81,6 +74,20 @@ builder.defineCatalogHandler(async (args) => {
     console.error("Lỗi khi cào dữ liệu Xoilac:", error.message);
     return { metas: [] };
   }
+});
+
+// Thêm Meta Handler để sửa lỗi TMDB trên Apple TV và iPhone
+builder.defineMetaHandler(async (args) => {
+  const matchPath = Buffer.from(args.id.replace("xoilac_", ""), "base64").toString("utf-8");
+  return {
+    meta: {
+      id: args.id,
+      type: "tv",
+      name: "Trực Tiếp Bóng Đá",
+      poster: "https://v3.strem.io/res/stremio.png",
+      description: "Xem trực tiếp trận đấu trên Xoilac TV"
+    }
+  };
 });
 
 builder.defineStreamHandler(async (args) => {
@@ -119,4 +126,3 @@ builder.defineStreamHandler(async (args) => {
 
 const PORT = process.env.PORT || 7000;
 serveHTTP(builder.getInterface(), { port: PORT });
-
