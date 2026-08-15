@@ -5,10 +5,10 @@ const cheerio = require("cheerio");
 const BASE_URL = "https://xoilacxtr.tv";
 
 const manifest = {
-  id: "org.xoilac.appletv.v2",
-  version: "1.0.6",
-  name: "Xoilac TV (Apple TV Fix)",
-  description: "Trực tiếp bóng đá Xoilac TV tối ưu Apple TV",
+  id: "org.xoilac.appletv.v3",
+  version: "1.0.7",
+  name: "Xoilac TV (Direct Stream)",
+  description: "Bắt luồng xem trực tiếp bóng đá Xoilac trên Stremio",
   resources: ["catalog", "meta", "stream"],
   types: ["tv"],
   catalogs: [
@@ -74,7 +74,7 @@ builder.defineMetaHandler(async (args) => {
       name: "Trực Tiếp Bóng Đá",
       poster: "https://v3.strem.io/res/stremio.png",
       background: "https://v3.strem.io/res/stremio.png",
-      description: "Đang kết nối luồng trực tiếp..."
+      description: "Đang tải luồng video..."
     }
   };
 });
@@ -88,38 +88,50 @@ builder.defineStreamHandler(async (args) => {
     const $ = cheerio.load(data);
     const streams = [];
 
-    // 1. Quét tìm link m3u8 chuẩn trong HTML/JS
-    const m3u8Matches = data.match(/https?:\/\/[^"' ]+\.m3u8[^"' ]*/g) || [];
-    m3u8Matches.forEach((streamUrl, idx) => {
-      streams.push({
-        title: `Xoilac Direct HD ${idx + 1}`,
-        url: streamUrl,
-        behaviorHints: {
-          isLive: true,
-          proxyHeaders: {
-            "request": customHeaders
-          }
-        }
-      });
-    });
-
-    // 2. Tìm iframe player (dành cho Apple TV)
-    $("iframe").each((_, el) => {
-      const src = $(el).attr("src");
-      if (src && (src.includes("embed") || src.includes("player") || src.includes("http"))) {
-        streams.push({
-          title: "Xoilac Embed Player",
-          url: src.startsWith("//") ? `https:${src}` : src,
-          behaviorHints: { isLive: true }
+    // 1. Quét iframe player
+    let playerUrl = $("iframe").attr("src");
+    
+    // 2. Trích xuất m3u8 hoặc luồng video trực tiếp từ nhúng player
+    if (playerUrl) {
+      if (playerUrl.startsWith("//")) playerUrl = `https:${playerUrl}`;
+      
+      try {
+        const playerRes = await axios.get(playerUrl, { headers: { ...customHeaders, "Referer": targetUrl }, timeout: 5000 });
+        const m3u8Matches = playerRes.data.match(/https?:\/\/[^"' ]+\.m3u8[^"' ]*/g) || [];
+        
+        m3u8Matches.forEach((streamUrl, idx) => {
+          streams.push({
+            title: `Xoilac Direct Server ${idx + 1} (Phát ngay)`,
+            url: streamUrl,
+            behaviorHints: {
+              isLive: true,
+              proxyHeaders: {
+                "request": {
+                  "User-Agent": customHeaders["User-Agent"],
+                  "Referer": playerUrl,
+                  "Origin": new URL(playerUrl).origin
+                }
+              }
+            }
+          });
         });
+      } catch (e) {
+        // Bỏ qua nếu player không phản hồi
       }
-    });
+    }
 
-    // 3. Fallback Web Link nếu không bóc được stream
+    // 3. Quét trực tiếp m3u8 trong trang gốc nếu không thấy qua iframe
     if (streams.length === 0) {
-      streams.push({
-        title: "Xem trực tiếp qua Web Player",
-        externalUrl: targetUrl
+      const directMatches = data.match(/https?:\/\/[^"' ]+\.m3u8[^"' ]*/g) || [];
+      directMatches.forEach((streamUrl, idx) => {
+        streams.push({
+          title: `Xoilac Stream HD ${idx + 1}`,
+          url: streamUrl,
+          behaviorHints: {
+            isLive: true,
+            proxyHeaders: { "request": customHeaders }
+          }
+        });
       });
     }
 
