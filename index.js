@@ -5,10 +5,10 @@ const cheerio = require("cheerio");
 const BASE_URL = "https://xoilacxtr.tv";
 
 const manifest = {
-  id: "org.xoilac.appletv.fast",
-  version: "1.0.8",
-  name: "Xoilac TV Live",
-  description: "Bắt luồng trực tiếp bóng đá tốc độ cao",
+  id: "org.xoilac.appletv.native",
+  version: "2.0.0",
+  name: "Xoilac TV (Apple TV Native)",
+  description: "Trực tiếp bóng đá xem ngay trong Player của Apple TV",
   resources: ["catalog", "meta", "stream"],
   types: ["tv"],
   catalogs: [
@@ -29,7 +29,7 @@ const customHeaders = {
   "Origin": BASE_URL
 };
 
-// 1. Catalog Handler (Phản hồi cực nhanh)
+// 1. Lấy danh sách trận đấu
 builder.defineCatalogHandler(async () => {
   try {
     const { data } = await axios.get(BASE_URL, { headers: customHeaders, timeout: 5000 });
@@ -67,7 +67,7 @@ builder.defineCatalogHandler(async () => {
   }
 });
 
-// 2. Meta Handler
+// 2. Định nghĩa Meta
 builder.defineMetaHandler(async (args) => {
   return {
     meta: {
@@ -76,32 +76,76 @@ builder.defineMetaHandler(async (args) => {
       name: "Trực Tiếp Bóng Đá",
       poster: "https://v3.strem.io/res/stremio.png",
       background: "https://v3.strem.io/res/stremio.png",
-      description: "Xoilac TV Stream"
+      description: "Đang kết nối luồng phát Apple TV..."
     }
   };
 });
 
-// 3. Stream Handler (Tốc độ ánh sáng - Không chờ cào dữ liệu sâu)
+// 3. Giải mã luồng m3u8 phát trực tiếp trong Player Apple TV
 builder.defineStreamHandler(async (args) => {
   try {
     const rawPath = Buffer.from(args.id.replace("xoilac_", ""), "base64url").toString("utf-8");
     const targetUrl = rawPath.startsWith("http") ? rawPath : `${BASE_URL}${rawPath}`;
 
-    // Tạo luồng phát trực tiếp ngay lập tức mà không gửi request rườm rà
-    const streams = [
-      {
-        title: "Xoilac Stream Pro (Nhanh nhất)",
-        url: targetUrl,
-        behaviorHints: {
-          isLive: true,
-          notSupported: false
+    // Request vào trang chi tiết trận đấu
+    const { data } = await axios.get(targetUrl, { headers: customHeaders, timeout: 5000 });
+    
+    const streams = [];
+
+    // Bóc tách tất cả link .m3u8 tĩnh hoặc link CDN từ trang
+    const m3u8Matches = data.match(/https?:\/\/[^"' ]+\.m3u8[^"' ]*/g) || [];
+
+    if (m3u8Matches.length > 0) {
+      // Lọc bỏ các link trùng lặp
+      const uniqueM3u8 = [...new Set(m3u8Matches)];
+      
+      uniqueM3u8.forEach((m3u8Url, idx) => {
+        streams.push({
+          title: `Server HD ${idx + 1} (Phát Native Apple TV)`,
+          url: m3u8Url,
+          behaviorHints: {
+            isLive: true,
+            proxyHeaders: {
+              "request": {
+                "User-Agent": customHeaders["User-Agent"],
+                "Referer": targetUrl,
+                "Origin": BASE_URL
+              }
+            }
+          }
+        });
+      });
+    }
+
+    // Nếu không tìm thấy m3u8 trực tiếp, quét lấy ID trận đấu để gọi API JSON CDN Xoilac
+    if (streams.length === 0) {
+      const matchIdMatch = data.match(/match_id\s*=\s*["']?(\d+)["']?/);
+      if (matchIdMatch && matchIdMatch[1]) {
+        const matchId = matchIdMatch[1];
+        const apiUrl = `${BASE_URL}/api/match/stream/${matchId}`;
+        
+        try {
+          const apiRes = await axios.get(apiUrl, { headers: { ...customHeaders, "Referer": targetUrl }, timeout: 4000 });
+          if (apiRes.data && apiRes.data.play_url) {
+            streams.push({
+              title: "Server API HD (Apple TV Direct)",
+              url: apiRes.data.play_url,
+              behaviorHints: {
+                isLive: true,
+                proxyHeaders: {
+                  "request": {
+                    "User-Agent": customHeaders["User-Agent"],
+                    "Referer": BASE_URL
+                  }
+                }
+              }
+            });
+          }
+        } catch (e) {
+          // Bỏ qua nếu API lỗi
         }
-      },
-      {
-        title: "Xem trực tiếp trên Web",
-        externalUrl: targetUrl
       }
-    ];
+    }
 
     return { streams };
   } catch (error) {
