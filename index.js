@@ -5,10 +5,10 @@ const cheerio = require("cheerio");
 const BASE_URL = "https://xoilacxtr.tv";
 
 const manifest = {
-  id: "org.xoilac.livefootball.v3",
-  version: "1.0.3",
-  name: "Xoilac TV Live Sports",
-  description: "Trực tiếp bóng đá Xoilac TV",
+  id: "org.xoilac.appletv.v2",
+  version: "1.0.6",
+  name: "Xoilac TV (Apple TV Fix)",
+  description: "Trực tiếp bóng đá Xoilac TV tối ưu Apple TV",
   resources: ["catalog", "meta", "stream"],
   types: ["tv"],
   catalogs: [
@@ -23,15 +23,15 @@ const manifest = {
 
 const builder = new addonBuilder(manifest);
 
-const headers = {
-  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-  "Referer": BASE_URL
+const customHeaders = {
+  "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+  "Referer": BASE_URL,
+  "Origin": BASE_URL
 };
 
-// 1. Catalog Handler
 builder.defineCatalogHandler(async () => {
   try {
-    const { data } = await axios.get(BASE_URL, { headers, timeout: 5000 });
+    const { data } = await axios.get(BASE_URL, { headers: customHeaders, timeout: 6000 });
     const $ = cheerio.load(data);
     const metas = [];
 
@@ -47,13 +47,13 @@ builder.defineCatalogHandler(async () => {
         }
 
         if (title.length > 3) {
-          const rawId = encodeURIComponent(link);
+          const rawId = Buffer.from(link).toString("base64url");
           metas.push({
             id: `xoilac_${rawId}`,
             type: "tv",
             name: title,
             poster: img || "https://v3.strem.io/res/stremio.png",
-            description: `Xem trực tiếp ${title}`
+            description: `Trực tiếp: ${title}`
           });
         }
       }
@@ -66,46 +66,59 @@ builder.defineCatalogHandler(async () => {
   }
 });
 
-// 2. Meta Handler (Giải quyết triệt để lỗi xoay vòng trên TV)
 builder.defineMetaHandler(async (args) => {
-  const matchPath = decodeURIComponent(args.id.replace("xoilac_", ""));
   return {
     meta: {
       id: args.id,
       type: "tv",
-      name: "Xoilac Trực Tiếp Bóng Đá",
+      name: "Trực Tiếp Bóng Đá",
       poster: "https://v3.strem.io/res/stremio.png",
       background: "https://v3.strem.io/res/stremio.png",
-      description: "Đang tải luồng trực tiếp từ Xoilac TV...",
-      genres: ["Sports", "Live TV"]
+      description: "Đang kết nối luồng trực tiếp..."
     }
   };
 });
 
-// 3. Stream Handler
 builder.defineStreamHandler(async (args) => {
   try {
-    const matchPath = decodeURIComponent(args.id.replace("xoilac_", ""));
-    const targetUrl = matchPath.startsWith("http") ? matchPath : `${BASE_URL}${matchPath}`;
+    const rawPath = Buffer.from(args.id.replace("xoilac_", ""), "base64url").toString("utf-8");
+    const targetUrl = rawPath.startsWith("http") ? rawPath : `${BASE_URL}${rawPath}`;
 
-    const { data } = await axios.get(targetUrl, { headers, timeout: 5000 });
+    const { data } = await axios.get(targetUrl, { headers: customHeaders, timeout: 6000 });
+    const $ = cheerio.load(data);
+    const streams = [];
 
+    // 1. Quét tìm link m3u8 chuẩn trong HTML/JS
     const m3u8Matches = data.match(/https?:\/\/[^"' ]+\.m3u8[^"' ]*/g) || [];
-    let streams = [];
-
-    if (m3u8Matches.length > 0) {
-      streams = m3u8Matches.map((streamUrl, idx) => ({
-        title: `Xoilac Direct - Server ${idx + 1}`,
+    m3u8Matches.forEach((streamUrl, idx) => {
+      streams.push({
+        title: `Xoilac Direct HD ${idx + 1}`,
         url: streamUrl,
         behaviorHints: {
-          notSupported: false,
-          proxyHeaders: { "request": { "User-Agent": headers["User-Agent"], "Referer": BASE_URL } }
+          isLive: true,
+          proxyHeaders: {
+            "request": customHeaders
+          }
         }
-      }));
-    } else {
-      // Dùng Web View / External Stream nếu không bóc tách được trực tiếp file m3u8
+      });
+    });
+
+    // 2. Tìm iframe player (dành cho Apple TV)
+    $("iframe").each((_, el) => {
+      const src = $(el).attr("src");
+      if (src && (src.includes("embed") || src.includes("player") || src.includes("http"))) {
+        streams.push({
+          title: "Xoilac Embed Player",
+          url: src.startsWith("//") ? `https:${src}` : src,
+          behaviorHints: { isLive: true }
+        });
+      }
+    });
+
+    // 3. Fallback Web Link nếu không bóc được stream
+    if (streams.length === 0) {
       streams.push({
-        title: "Xoilac Web Player (Mở trong trình duyệt/Player ngoài)",
+        title: "Xem trực tiếp qua Web Player",
         externalUrl: targetUrl
       });
     }
